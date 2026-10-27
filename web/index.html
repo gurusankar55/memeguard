@@ -250,7 +250,7 @@
       <div class="stat"><b id="sFrozen">–</b><span>Frozen after report</span></div>
     </div>
     <div class="contract mono">Contract: <span id="contractAddr"></span></div>
-    <div class="claim-box" id="claimBox"><span>GEN from your sells, recorded on-chain for you:</span><b class="mono" id="claimAmt">0</b><button class="btn-ghost" id="withdrawBtn" disabled>Withdraw paused</button><span class="field-help" style="flex-basis:100%;margin:0">Withdraw is paused on purpose: GenLayer Studionet does not yet deliver GEN from a contract to a wallet (the transfer ends in <span class="mono">contract_not_found_handler</span> and is not credited). Your claimable balance stays recorded in the contract.</span></div>
+    <div class="claim-box" id="claimBox"><span>GEN from your sells, ready to withdraw:</span><b class="mono" id="claimAmt">0</b><button class="btn-primary" id="withdrawBtn">Withdraw to wallet</button><span class="field-help" style="flex-basis:100%;margin:0">Withdraw calls the contract's <span class="mono">withdraw()</span>: it clears your claimable balance and sends the GEN to your wallet with <span class="mono">emit_transfer</span>. The transfer runs as a follow-up transaction after finalization; its hash is shown below once it is created.</span></div>
   </section>
 
   <section class="steps" aria-label="How it works">
@@ -335,7 +335,7 @@
 </div>
 
 <footer>
-  <div class="wrap">MemeGuard runs on GenLayer Studionet with test GEN. Real test GEN moves into each coin's pool when you create or buy. Sells are recorded as claimable GEN; payout to wallets is paused until GenLayer Studionet supports contract-to-wallet transfers. Prototype on a test network, not financial advice.</div>
+  <div class="wrap">MemeGuard runs on GenLayer Studionet with test GEN. Real test GEN moves: create and buy send GEN into each coin's own pool; sell moves the payout to your claimable balance and Withdraw sends it to your wallet. Prototype on a test network, not financial advice.</div>
 </footer>
 
 <script type="module">
@@ -365,7 +365,7 @@ let coins = [];
 let balances = {};
 let holders = {};
 let claimableWei = 0n;
-const WITHDRAW_PAUSED = true; // Studionet does not credit contract -> wallet transfers yet
+const WITHDRAW_PAUSED = false;
 let logoData = "";
 let filter = "ALL";
 let busy = false;
@@ -679,6 +679,8 @@ async function runTx(title, functionName, args, consensusNote, value = 0n) {
     const err = contractError(receipt);
     if (err) throw new Error(err);
     details[3] = "Accepted by validator consensus.";
+    const trig = receipt?.triggered_transactions || receipt?.triggeredTransactions;
+    if (functionName === "withdraw" && Array.isArray(trig) && trig.length) details[3] += ` GEN transfer transaction: ${trig[0]}`;
     drawTx(title, 4, details);
     await loadCoins();
     return true;

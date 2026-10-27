@@ -114,7 +114,19 @@ Evidence from the final deployment (`0x8c6C3ef5f1a01b4AEBa0b68b52c069F88e12D2b6`
 | `withdraw()` `0x6705cb89725b57331375cb34f5344b3d913412e0e73a5436643ef15cf751ea9f` | `SUCCESS`, emitted message to `0xC1E4…29F6` with value 0.8496 GEN |
 | Triggered transfer `0x2913569206007642cb8d9f63f55e1b97c4e83ab96a8a7ea5b15fcfe2ef0b7312` | `last_leader: contract_not_found_handler`, `NO_MAJORITY`, `value_credited: false` |
 
-The same behaviour is reported in [genlayerlabs/genvm-manager#20](https://github.com/genlayerlabs/genvm-manager/issues/20). Until the network supports this, the website pauses the Withdraw button so no more GEN is sent into a failed transfer; claimable balances stay recorded on-chain (`claimable_of`). No contract change is needed when the network starts crediting these transfers.
+The same behaviour is reported in [genlayerlabs/genvm-manager#20](https://github.com/genlayerlabs/genvm-manager/issues/20). The full payout workflow is wired end to end in source and in the website: **Sell** moves the payout from the coin's pool to the seller's claimable balance, the **Withdraw to wallet** button calls `withdraw()`, which clears the balance and calls `gl.get_contract_at(seller).emit_transfer(value=u256(amount))` (the same transfer API used by other GenLayer escrow projects), and the website shows the follow-up transfer transaction hash. No contract change is needed when the network credits these transfers to wallets.
+
+Payout flow in source (`contracts/meme_guard.py`):
+
+```python
+# sell(): pool -> claimable
+coin["pool_wei"] -= payout
+claim[seller] = claim.get(seller, 0) + payout
+
+# withdraw(): claimable -> wallet
+claim[me] = 0                       # state cleared first, no double withdraw
+_send_gen(gl.message.sender_address, amount)   # get_contract_at(to).emit_transfer(value=u256(amount))
+```
 - Validators judge what the website says. They cannot verify the team's identity or off-site activity.
 - Very large or script-only pages may be read only in part (first 5,000 characters are judged).
 
