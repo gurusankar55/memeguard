@@ -250,7 +250,7 @@
       <div class="stat"><b id="sFrozen">–</b><span>Frozen after report</span></div>
     </div>
     <div class="contract mono">Contract: <span id="contractAddr"></span></div>
-    <div class="claim-box" id="claimBox"><span>GEN from your sells, ready to withdraw:</span><b class="mono" id="claimAmt">0</b><button class="btn-primary" id="withdrawBtn">Withdraw to wallet</button><span class="field-help" style="flex-basis:100%;margin:0">Withdraw calls the contract's <span class="mono">withdraw()</span>: it clears your claimable balance and sends the GEN to your wallet with <span class="mono">emit_transfer</span>. The transfer runs as a follow-up transaction after finalization; its hash is shown below once it is created.</span></div>
+    <div class="claim-box" id="claimBox"><span>GEN from your sells, ready to withdraw:</span><b class="mono" id="claimAmt">0</b><button class="btn-primary" id="withdrawBtn">Withdraw to wallet</button><span class="field-help" style="flex-basis:100%;margin:0">Withdraw calls the contract's <span class="mono">withdraw()</span>: it clears your claimable balance and sends the GEN to your wallet with <span class="mono">emit_transfer</span>. The transfer runs as a follow-up transaction after finalization; its hash is shown in the Transaction box. Note: on Studionet today these wallet transfers are routed to <span class="mono">contract_not_found_handler</span> and not credited (see README, Known limitation).</span></div>
   </section>
 
   <section class="steps" aria-label="How it works">

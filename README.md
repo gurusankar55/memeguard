@@ -113,6 +113,8 @@ Evidence from the final deployment (`0x8c6C3ef5f1a01b4AEBa0b68b52c069F88e12D2b6`
 |---|---|
 | `withdraw()` `0x6705cb89725b57331375cb34f5344b3d913412e0e73a5436643ef15cf751ea9f` | `SUCCESS`, emitted message to `0xC1E4…29F6` with value 0.8496 GEN |
 | Triggered transfer `0x2913569206007642cb8d9f63f55e1b97c4e83ab96a8a7ea5b15fcfe2ef0b7312` | `last_leader: contract_not_found_handler`, `NO_MAJORITY`, `value_credited: false` |
+| `withdraw()` `0x4aff428758c0c384b31706504582b765677f822152609896fade2296d0af071a` (after re-enabling Withdraw) | `SUCCESS`, emitted message to `0xC1E4…29F6` with value 0.05 GEN |
+| Triggered transfer `0xe7d708b2f82fa67a4698286b52c70027be863d0d3979d03c7bca0ffa7f915429` | `last_leader: contract_not_found_handler`, `NO_MAJORITY`, `value_credited: false` |
 
 The same behaviour is reported in [genlayerlabs/genvm-manager#20](https://github.com/genlayerlabs/genvm-manager/issues/20). The full payout workflow is wired end to end in source and in the website: **Sell** moves the payout from the coin's pool to the seller's claimable balance, the **Withdraw to wallet** button calls `withdraw()`, which clears the balance and calls `gl.get_contract_at(seller).emit_transfer(value=u256(amount))` (the same transfer API used by other GenLayer escrow projects), and the website shows the follow-up transfer transaction hash. No contract change is needed when the network credits these transfers to wallets.
 
