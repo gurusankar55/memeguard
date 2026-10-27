@@ -1,3 +1,5 @@
+![MemeGuard](docs/brand/memeguard-banner-1200x630.png)
+
 # MemeGuard Launchpad
 
 **A fair-launch meme coin launchpad where GenLayer validators check every coin before it can trade, keep watching it after launch, and release the creator's share only as the creator keeps their public promise.**
