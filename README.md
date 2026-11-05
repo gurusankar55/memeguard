@@ -45,6 +45,23 @@ Every holder gets the same GEN per token no matter when they claim; the sum of a
 6. All three holders claim: payouts are proportional to tokens and add up to the full pool; a second claim is rejected.
 7. Another coin is wrongly frozen; the creator appeals, validators answer `OK`, the coin is `LIVE` again. After a new freeze the second appeal is rejected (1 per coin).
 
+### Live test on Studionet (v2 contract `0x960BA084742E34eC13170492431207b223189105`)
+
+Full v2 flow run on the live website with two wallets (creator `0xa407…dfbb`, holder `0xc1e4…29f6`) and a test coin **GuardCat ($GCAT)** whose site is a public gist:
+
+1. Coin created, verify line added, guard check → `LIVE`.
+2. Holder bought 0.5 GEN, sold 50% twice → MemeGuard balance 0.125 GEN.
+3. **Buy with balance**: 0.1 GEN spent from the balance → 99,926 tokens; balance 0.125 → 0.025 GEN.
+4. Scam line added to the site, holder reported → validators froze the coin (`SCAM_SIGNS`).
+5. Scam line removed, **creator appeal** → validators re-read the site → `LIVE` again ("Appeal won").
+6. Scam line added again, reported → `FROZEN`; the appeal button is gone (1 appeal per coin).
+7. Holder **voted refund** → `REFUNDING`; creator's 50,000,000 tokens **burned**.
+8. Holder **claimed refund** of 0.3249 GEN (the whole pool) → balance 0.025 + 0.3249 = 0.3499 GEN.
+
+| Frozen by report | Appeal won, live again | Refund vote | Refunding, creator burned |
+|---|---|---|---|
+| ![](docs/screenshots/v2-01-frozen-by-report.png) | ![](docs/screenshots/v2-02-appeal-won-live.png) | ![](docs/screenshots/v2-03-refund-vote.png) | ![](docs/screenshots/v2-04-refunding-creator-burned.png) |
+
 ## The trust problem
 
 On meme coin launchpads anyone can launch a token in seconds. Buyers have no way to know if:
