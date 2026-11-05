@@ -1,6 +1,8 @@
+# v0.2.16
 # { "Depends": "py-genlayer:1jb45aa8ynh2a9c9xn3b7qqh8sm5q93hwfp7jqmwsfhh8jpz09h6" }
+from genlayer import *
 
-# MemeGuard Launchpad
+# MemeGuard Launchpad v2
 # Meme coin launchpad with rug-pull protection, powered by GenLayer validators.
 # 1. Creator creates a coin with a website and a public promise.
 #    Max supply is fixed at 1,000,000,000 for every coin.
@@ -25,8 +27,18 @@
 # re-checked by its creator (3 retries) after fixing the website.
 # Fair launch: no wallet can buy above 2% of max supply, and the creator's
 # wallet cannot buy its own coin at all.
-
-from genlayer import *
+#
+# v2 (Milestone): "Rug Refund + Usable Balance"
+# 6. Usable balance: GEN from sells can be spent directly on another coin with
+#    buy_with_balance(), so sell proceeds are never stuck even while the network
+#    does not credit contract-to-wallet transfers.
+# 7. Rug Refund: when a coin is FROZEN, holders vote. When voters together hold
+#    20% of the holder tokens, the coin becomes REFUNDING: the pool is split
+#    pro-rata to every holder (no bank run, first seller does not win) and the
+#    creator's locked AND unlocked tokens are burned.
+# 8. Creator appeal: once per coin, the creator of a FROZEN coin can ask the
+#    validators to re-read the fixed website. OK -> LIVE again. Not possible
+#    after a refund has started.
 
 import json
 
@@ -49,6 +61,8 @@ MAX_CLAIM_TRIES = 5                  # failed checks allowed per part
 MAX_GUARD_RETRIES = 3                # retries after a missing verify line / unreadable site
 RETRY_CODES = ["NO_PROOF", "NO_WEBSITE"]
 MAX_WALLET_TOKENS = 20000000         # no wallet may buy above 2% of max supply
+REFUND_VOTE_PCT = 20                 # % of holder tokens needed to start a refund
+MAX_APPEALS = 1                      # creator appeals allowed per frozen coin
 
 GUARD_CODES = ["OK", "NO_WEBSITE", "NO_PROOF", "IMPERSONATION", "MISMATCH", "SCAM_SIGNS"]
 
@@ -243,6 +257,14 @@ class MemeGuard(gl.Contract):
             "report_count": 0,
             "last_report": "",
             "freeze_reason": "",
+            "refund_voters": [],
+            "refund_pool_wei": 0,
+            "refund_supply": 0,
+            "refund_paid_wei": 0,
+            "refund_claimers": [],
+            "creator_burned": 0,
+            "appeals_used": 0,
+            "appeal_result": "",
         }
         coins.append(coin)
         self._save_coins(coins)
@@ -311,19 +333,14 @@ class MemeGuard(gl.Contract):
         self._save_coins(coins)
 
     # ---------- 3. trading on a bonding curve ----------
-    @gl.public.write.payable
-    def buy(self, coin_id: int) -> None:
-        # the GEN sent with this call is the amount spent
-        coin_id = str(coin_id)
+    def _buy_core(self, coin_id: str, buyer: str, value: int) -> None:
         coins = self._coins()
         idx = self._find(coins, coin_id)
         coin = coins[idx]
         if coin["status"] != "LIVE":
             raise Exception("Coin is not live")
-        value = int(gl.message.value)
         if value < MIN_BUY_WEI or value > MAX_BUY_WEI:
             raise Exception("Buy between 0.1 and 100 GEN")
-        buyer = gl.message.sender_address.as_hex.lower()
         if buyer == coin["creator"]:
             raise Exception("The creator cannot buy their own coin")
         sold = coin["sold"]
@@ -343,6 +360,28 @@ class MemeGuard(gl.Contract):
         self._record_trade(coin, "BUY", value // MILLI, tokens, rate_before, self._rate(coin["sold"]), buyer)
         self._save_coins(coins)
         self._add_balance(coin_id, buyer, tokens)
+
+    @gl.public.write.payable
+    def buy(self, coin_id: int) -> None:
+        # the GEN sent with this call is the amount spent
+        self._buy_core(str(coin_id), gl.message.sender_address.as_hex.lower(), int(gl.message.value))
+
+    @gl.public.write
+    def buy_with_balance(self, coin_id: int, amount_milli: int) -> None:
+        # v2: spend GEN from your claimable balance (sells, refunds) on a coin.
+        # amount is in 0.001 GEN units (1000 = 1 GEN)
+        if amount_milli <= 0:
+            raise Exception("Enter an amount")
+        value = amount_milli * MILLI
+        buyer = gl.message.sender_address.as_hex.lower()
+        claim = json.loads(self.claimable_json)
+        have = claim.get(buyer, 0)
+        if have < value:
+            raise Exception("Not enough GEN in your balance")
+        claim[buyer] = have - value
+        self.claimable_json = json.dumps(claim, sort_keys=True)
+        # the GEN already sits in the contract; it moves into this coin's pool
+        self._buy_core(str(coin_id), buyer, value)
 
     @gl.public.write
     def sell(self, coin_id: int, token_amount: int) -> None:
@@ -514,6 +553,142 @@ Reply with exactly one word: YES or NO."""
             coin["claim_tries"] = coin.get("claim_tries", 0) + 1
             self._save_coins(coins)
 
+    # ---------- 6. v2: rug refund (holder vote, pro-rata payout) ----------
+    def _holder_balances(self, coin_id: str, creator: str) -> dict:
+        # address -> tokens for every holder of this coin except the creator
+        prefix = coin_id + ":"
+        bal = json.loads(self.balances_json)
+        out = {}
+        for key in bal:
+            if key.startswith(prefix) and bal[key] > 0:
+                addr = key[len(prefix):]
+                if addr != creator:
+                    out[addr] = bal[key]
+        return out
+
+    @gl.public.write
+    def vote_refund(self, coin_id: int) -> None:
+        # a holder of a FROZEN coin votes to end it and refund the pool
+        coin_id = str(coin_id)
+        coins = self._coins()
+        idx = self._find(coins, coin_id)
+        coin = coins[idx]
+        if coin["status"] != "FROZEN":
+            raise Exception("Refund votes are only for frozen coins")
+        voter = gl.message.sender_address.as_hex.lower()
+        holders = self._holder_balances(coin_id, coin["creator"])
+        if holders.get(voter, 0) <= 0:
+            raise Exception("Only holders of this coin can vote")
+        voters = coin.get("refund_voters", [])
+        if voter in voters:
+            raise Exception("You already voted")
+        voters.append(voter)
+        coin["refund_voters"] = voters
+
+        # vote weight = tokens the voters hold right now (sold tokens do not count)
+        total = 0
+        for a in holders:
+            total += holders[a]
+        weight = 0
+        for v in voters:
+            weight += holders.get(v, 0)
+        if total > 0 and weight * 100 >= total * REFUND_VOTE_PCT:
+            # start the refund: the pool is frozen for a fair pro-rata split
+            coin["status"] = "REFUNDING"
+            coin["refund_pool_wei"] = coin["pool_wei"]
+            coin["refund_supply"] = total
+            coin["refund_paid_wei"] = 0
+            # the rug creator gets nothing: locked and unlocked tokens are burned
+            bal = json.loads(self.balances_json)
+            ckey = coin_id + ":" + coin["creator"]
+            burned = coin.get("creator_locked", 0) + bal.get(ckey, 0)
+            bal[ckey] = 0
+            self.balances_json = json.dumps(bal, sort_keys=True)
+            coin["creator_burned"] = burned
+            coin["creator_locked"] = 0
+        self._save_coins(coins)
+
+    @gl.public.write
+    def claim_refund(self, coin_id: int) -> None:
+        # a holder of a REFUNDING coin takes their share of the pool;
+        # it is added to the claimable balance (usable with buy_with_balance)
+        coin_id = str(coin_id)
+        coins = self._coins()
+        idx = self._find(coins, coin_id)
+        coin = coins[idx]
+        if coin["status"] != "REFUNDING":
+            raise Exception("This coin is not refunding")
+        me = gl.message.sender_address.as_hex.lower()
+        if me == coin["creator"]:
+            raise Exception("The creator gets no refund")
+        bal = json.loads(self.balances_json)
+        key = coin_id + ":" + me
+        tokens = bal.get(key, 0)
+        if tokens <= 0:
+            raise Exception("You hold no tokens of this coin")
+        payout = tokens * coin["refund_pool_wei"] // coin["refund_supply"]
+        if payout > coin["pool_wei"]:
+            payout = coin["pool_wei"]
+        bal[key] = 0
+        self.balances_json = json.dumps(bal, sort_keys=True)
+        coin["pool_wei"] = coin["pool_wei"] - payout
+        coin["raised_milli"] = coin["pool_wei"] // MILLI
+        coin["refund_paid_wei"] = coin.get("refund_paid_wei", 0) + payout
+        coin["refund_claimers"] = (coin.get("refund_claimers", []) + [me])[-MAX_TRADES_KEPT:]
+        self._save_coins(coins)
+        claim = json.loads(self.claimable_json)
+        claim[me] = claim.get(me, 0) + payout
+        self.claimable_json = json.dumps(claim, sort_keys=True)
+
+    # ---------- 7. v2: creator appeal (GenLayer validators) ----------
+    @gl.public.write
+    def appeal_freeze(self, coin_id: int) -> None:
+        # the creator of a FROZEN coin fixes the website and asks validators
+        # to re-read it once. OK -> LIVE again and refund votes are cleared.
+        coin_id = str(coin_id)
+        coins = self._coins()
+        idx = self._find(coins, coin_id)
+        coin = coins[idx]
+        if gl.message.sender_address.as_hex.lower() != coin["creator"]:
+            raise Exception("Only the creator can appeal")
+        if coin["status"] != "FROZEN":
+            raise Exception("Only frozen coins can be appealed")
+        if coin.get("appeals_used", 0) >= MAX_APPEALS:
+            raise Exception("This coin has no appeals left")
+
+        name = coin["name"]
+        symbol = coin["symbol"]
+        website = coin["website"]
+        promise = coin["promise"]
+        proof = coin["verify_line"]
+
+        def check() -> str:
+            full = _read_page(website)
+            if full.strip() == "":
+                return "NO_WEBSITE"
+            if not _has_proof(full, proof):
+                return "NO_PROOF"
+            return _parse_guard(gl.nondet.exec_prompt(_guard_prompt(name, symbol, promise, full[:5000])))
+
+        verdict = gl.eq_principle.strict_eq(check)
+        if verdict not in GUARD_CODES:
+            verdict = "SCAM_SIGNS"
+
+        coins = self._coins()
+        coin = coins[idx]
+        if coin["status"] != "FROZEN":
+            raise Exception("Coin is no longer frozen (a refund may have started)")
+        coin["appeals_used"] = coin.get("appeals_used", 0) + 1
+        if verdict == "OK":
+            coin["appeal_result"] = "WON"
+            coin["status"] = "LIVE"
+            coin["freeze_reason"] = ""
+            coin["last_report"] = "APPEAL_WON"
+            coin["refund_voters"] = []
+        else:
+            coin["appeal_result"] = verdict
+        self._save_coins(coins)
+
     # ---------- views ----------
     @gl.public.view
     def get_all_coins(self) -> str:
@@ -548,6 +723,20 @@ Reply with exactly one word: YES or NO."""
         # GEN (in wei, as text) waiting to be withdrawn by this address
         claim = json.loads(self.claimable_json)
         return str(claim.get(address.lower(), 0))
+
+    @gl.public.view
+    def refund_of(self, coin_id: int, address: str) -> str:
+        # v2: GEN (wei, as text) this address can take with claim_refund now
+        coin_id = str(coin_id)
+        coins = self._coins()
+        for c in coins:
+            if c["id"] == coin_id:
+                if c["status"] != "REFUNDING" or address.lower() == c["creator"]:
+                    return "0"
+                bal = json.loads(self.balances_json)
+                tokens = bal.get(coin_id + ":" + address.lower(), 0)
+                return str(min(tokens * c["refund_pool_wei"] // c["refund_supply"], c["pool_wei"]))
+        return "0"
 
     @gl.public.view
     def balance_of(self, coin_id: int, address: str) -> int:

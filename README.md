@@ -9,6 +9,42 @@
 - Contract source: [`contracts/meme_guard.py`](contracts/meme_guard.py)
 - Frontend: [`web/index.html`](web/index.html) (no backend, the browser talks to the contract with `genlayer-js`)
 
+## Milestone v2: Rug Refund + Usable Balance
+
+v1 (accepted) could detect a rug and **freeze** the coin, but it could not make holders whole, and GEN from sells was stuck because Studionet does not credit contract-to-wallet transfers (see Known limitation). v2 closes both gaps with new contract functionality.
+
+| | v1 (accepted) | v2 (this milestone) |
+|---|---|---|
+| After a coin is frozen | Holders race to sell on the curve: the first seller gets the best price, the last gets almost nothing (bank run) | **Rug Refund**: holders vote; when voters hold 20% of holder tokens the coin becomes `REFUNDING` and the pool is split **pro-rata** by tokens held. Order does not matter |
+| Rug creator | Locked share stays locked, but already-unlocked tokens can still be sold | Creator's locked **and** unlocked tokens are **burned** when a refund starts (`creator_burned`) |
+| False reports | A frozen coin stayed frozen forever | **Creator appeal** (once): validators re-read the fixed website with `strict_eq`; `OK` makes the coin `LIVE` again and clears refund votes. No appeal once a refund has started |
+| GEN from sells | Only `withdraw()`, which Studionet does not credit to wallets yet | **`buy_with_balance`**: spend the claimable balance (sells and refunds) directly on any live coin, so funds are never stuck |
+| Contract header | Missing version line | `# v0.2.16` header for GenLayer Studio |
+
+New methods: `buy_with_balance`, `vote_refund`, `claim_refund`, `appeal_freeze`, `refund_of` (view). New coin status: `REFUNDING`. New coin fields: `refund_voters`, `refund_pool_wei`, `refund_supply`, `refund_paid_wei`, `refund_claimers`, `creator_burned`, `appeals_used`, `appeal_result`.
+
+Why it matters: freezing a rug only stops new victims. v2 is the first part that **gives money back** to the people already holding, fairly, and punishes the creator, while the appeal keeps a single false report from killing an honest coin.
+
+### Refund math (no bank run)
+
+```
+refund_pool  = pool_wei at the moment the vote passes   (snapshot)
+refund_supply = sum of all holder tokens, creator excluded (snapshot)
+payout(holder) = tokens(holder) * refund_pool // refund_supply
+```
+
+Every holder gets the same GEN per token no matter when they claim; the sum of all payouts equals the pool (integer rounding dust only). Trading and selling stop once a coin is `REFUNDING`, so the pool cannot be drained before everyone claims. Refunds go to the claimable balance and can be reused with `buy_with_balance` or withdrawn.
+
+### Tested flow (local simulation: `python tests/test_v2_flow.py`)
+
+1. Three wallets buy a coin; one sells half and buys again **from balance** (balance drops by exactly the amount spent; overspending is rejected).
+2. A report with scam signs freezes the coin.
+3. A small holder votes: still `FROZEN` (below 20%). The creator cannot vote.
+4. A second holder votes: threshold reached, status `REFUNDING`, creator's 50,000,000 tokens burned.
+5. Creator appeal is rejected (refund already started); selling is rejected.
+6. All three holders claim: payouts are proportional to tokens and add up to the full pool; a second claim is rejected.
+7. Another coin is wrongly frozen; the creator appeals, validators answer `OK`, the coin is `LIVE` again. After a new freeze the second appeal is rejected (1 per coin).
+
 ## The trust problem
 
 On meme coin launchpads anyone can launch a token in seconds. Buyers have no way to know if:
@@ -29,6 +65,8 @@ Today this is judged by each buyer alone, or by one centralised moderator. MemeG
 | 2. Guard check | Every validator opens the website itself. If the verify line is missing → `NO_PROOF`. Otherwise an LLM classifies the page as `OK`, `IMPERSONATION`, `MISMATCH` or `SCAM_SIGNS`. Validators must agree exactly (`strict_eq`). Only `OK` makes the coin `LIVE`. | GenLayer validators |
 | 3. Trade | Buy and sell on a bonding curve: price rises with every buy and falls with every sell (up to 5x at full sale). Every trade is stored on-chain and drawn as a candle chart. | Contract rules |
 | 4. Rug report | Anyone can report a live coin once, with a short written reason. Validators re-read the website. If the verify line was removed or the page now shows scam signs, the coin becomes `FROZEN`: buying stops, holders can still sell, the creator share stays locked. | GenLayer validators |
+| 6. Rug refund (v2) | When a coin is `FROZEN`, holders call `vote_refund`. When voters hold 20% of holder tokens the coin becomes `REFUNDING`: the pool is split pro-rata, the creator's tokens are burned, holders call `claim_refund`. | Holders + contract rules |
+| 7. Creator appeal (v2) | The creator of a `FROZEN` coin fixes the website and calls `appeal_freeze` once. Validators re-read it; `OK` → `LIVE` again. | GenLayer validators |
 | 5. Creator unlock | The creator's 5% (50M) unlocks in **4 parts of 12.5M**. Each part needs (a) enough real demand: 10% / 25% / 50% / 75% of the sale supply sold, and (b) a validator check that the website shows the promise fulfilled, still has the verify line and has no scam signs. "Coming soon" does not count. | Contract rules + GenLayer validators |
 
 Supply split per coin: 950,000,000 for sale (bonding curve) + 50,000,000 creator share (locked, unlocked in 4 parts).
@@ -61,6 +99,11 @@ Each of these decisions depends on what a live web page says right now: "is this
 | `buy(coin_id)` | write, payable | Spends the GEN sent with the call (0.1-100 GEN) on the bonding curve; max 2% per wallet; not the creator |
 | `sell(coin_id, token_amount)` | write | Sells tokens back to the coin's pool; the GEN payout is added to the seller's claimable balance. Allowed for `LIVE` and `FROZEN` coins |
 | `withdraw()` | write | Sends all claimable GEN to the caller's wallet |
+| `buy_with_balance(coin_id, amount_milli)` | write (v2) | Buys with the caller's claimable GEN (1000 = 1 GEN), same rules as `buy` |
+| `vote_refund(coin_id)` | write (v2) | Holder of a `FROZEN` coin votes for a refund; starts `REFUNDING` at 20% of holder tokens and burns the creator's tokens |
+| `claim_refund(coin_id)` | write (v2) | Holder takes their pro-rata share of the pool into their claimable balance |
+| `appeal_freeze(coin_id)` | write, validators (v2) | Creator's single appeal of a freeze; `OK` makes the coin `LIVE` again |
+| `refund_of(coin_id, address)` | view (v2) | GEN (wei) the address can claim from a refunding coin |
 | `report_coin(coin_id, reason)` | write, validators | Re-check of a live coin with a short written reason (5-200 chars). The reason is given to validators only as an unverified hint, fenced as untrusted text; the verdict comes from the live website. Stored on the coin as a public report history; can freeze the coin |
 | `claim_creator_share(coin_id)` | write, validators | Unlocks the next 12.5M part of the creator share |
 | `get_all_coins()` / `get_coin(coin_id)` | view | Coin data as JSON, including the trade history |
@@ -134,6 +177,7 @@ _send_gen(gl.message.sender_address, amount)   # get_contract_at(to).emit_transf
 
 ## Roadmap
 
+- ✅ v2: Rug refund, creator appeal, usable balance (this milestone)
 1. DEX listing for coins whose creator kept the promise.
 2. Liquidity pool locked by validator checks.
 3. Staking rewards for holders of coins with a clean record.

@@ -78,7 +78,7 @@
   .contract { margin-top: 16px; font-size: 13px; color: var(--muted); word-break: break-all; }
 
   /* how it works */
-  .steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 24px 0 40px; }
+  .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 24px 0 40px; }
   .step { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; }
   .step .n { color: var(--accent); font-weight: 700; font-size: 13px; }
   .step h3 { margin: 6px 0; font-size: 16px; }
@@ -160,6 +160,9 @@
   .trust span.ok { color: var(--live); border-color: rgba(61,220,132,.3); }
   .trust span.warn { color: var(--rejected); border-color: rgba(255,92,92,.3); }
   .b-FROZEN { background: rgba(120,170,255,.15); color: #78aaff; }
+  .b-REFUNDING { background: rgba(255,140,60,.15); color: #ff9a4d; }
+  .refund-note { font-size: 13px; color: #ffc29a; background: rgba(255,140,60,.08); border: 1px solid rgba(255,140,60,.3); border-radius: 10px; padding: 8px 10px; }
+  .new-tag { font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 999px; background: var(--accent); color: var(--accent-ink); margin-left: 6px; vertical-align: middle; }
   .frozen-note { font-size: 13px; color: #9fc0ff; background: rgba(120,170,255,.08); border: 1px solid rgba(120,170,255,.25); border-radius: 10px; padding: 8px 10px; }
   .trades { list-style: none; padding: 0; margin: 0; font-size: 12px; }
   .trades li { display: flex; gap: 8px; padding: 3px 0; color: var(--muted); font-size: 11px; }
@@ -248,9 +251,10 @@
       <div class="stat"><b id="sLive">–</b><span>Live (passed)</span></div>
       <div class="stat"><b id="sRejected">–</b><span>Blocked at launch</span></div>
       <div class="stat"><b id="sFrozen">–</b><span>Frozen after report</span></div>
+      <div class="stat"><b id="sRefund">–</b><span>Refunded to holders</span></div>
     </div>
     <div class="contract mono">Contract: <span id="contractAddr"></span></div>
-    <div class="claim-box" id="claimBox"><span>GEN from your sells, ready to withdraw:</span><b class="mono" id="claimAmt">0</b><button class="btn-primary" id="withdrawBtn">Withdraw to wallet</button><span class="field-help" style="flex-basis:100%;margin:0">Withdraw calls the contract's <span class="mono">withdraw()</span>: it clears your claimable balance and sends the GEN to your wallet with <span class="mono">emit_transfer</span>. The transfer runs as a follow-up transaction after finalization; its hash is shown in the Transaction box. Note: on Studionet today these wallet transfers are routed to <span class="mono">contract_not_found_handler</span> and not credited (see README, Known limitation).</span></div>
+    <div class="claim-box" id="claimBox"><span>Your MemeGuard balance (sells + refunds):</span><b class="mono" id="claimAmt">0</b><button class="btn-primary" id="withdrawBtn">Withdraw to wallet</button><span class="field-help" style="flex-basis:100%;margin:0"><b style="color:var(--live);font-size:13px">New in v2:</b> this balance is never stuck. On any live coin choose <b>Pay from: Balance</b> to buy with it directly (<span class="mono">buy_with_balance</span>). Withdraw calls the contract's <span class="mono">withdraw()</span>: it clears your claimable balance and sends the GEN to your wallet with <span class="mono">emit_transfer</span>. The transfer runs as a follow-up transaction after finalization; its hash is shown in the Transaction box. Note: on Studionet today these wallet transfers are routed to <span class="mono">contract_not_found_handler</span> and not credited (see README, Known limitation).</span></div>
   </section>
 
   <section class="steps" aria-label="How it works">
@@ -258,6 +262,8 @@
     <div class="step"><div class="n">02</div><h3>Guard check</h3><p>Validators read the live website and must agree: real coin, copy, or scam.</p></div>
     <div class="step"><div class="n">03</div><h3>Trade</h3><p>Only coins that pass can trade. Price rises with every buy and falls with every sell.</p></div>
     <div class="step"><div class="n">04</div><h3>Report &amp; unlock</h3><p>Anyone can report a coin for a re-check. The creator's 5% unlocks in 4 parts, only as the promise is kept and demand grows.</p></div>
+    <div class="step"><div class="n">05 <span class="new-tag">v2</span></div><h3>Rug refund</h3><p>If a coin is frozen, holders vote. At 20% of holder tokens the pool is split fairly to every holder and the creator's tokens are burned.</p></div>
+    <div class="step"><div class="n">06 <span class="new-tag">v2</span></div><h3>Creator appeal</h3><p>A wrongly frozen coin can be appealed once: validators re-read the fixed website and can make it live again.</p></div>
   </section>
 
   <section class="two">
@@ -312,6 +318,7 @@
         <button class="tab" data-f="PENDING">Pending</button>
         <button class="tab" data-f="REJECTED">Rejected</button>
         <button class="tab" data-f="FROZEN">Frozen</button>
+        <button class="tab" data-f="REFUNDING">Refunding</button>
       </div>
       <span class="spacer"></span>
       <button class="btn-ghost" id="refreshBtn">Refresh</button>
@@ -335,7 +342,7 @@
 </div>
 
 <footer>
-  <div class="wrap">MemeGuard runs on GenLayer Studionet with test GEN. Real test GEN moves: create and buy send GEN into each coin's own pool; sell moves the payout to your claimable balance and Withdraw sends it to your wallet. Prototype on a test network, not financial advice.</div>
+  <div class="wrap">MemeGuard v2 runs on GenLayer Studionet with test GEN. Real test GEN moves: create and buy send GEN into each coin's own pool; sell moves the payout to your claimable balance and Withdraw sends it to your wallet. Prototype on a test network, not financial advice.</div>
 </footer>
 
 <script type="module">
@@ -365,6 +372,7 @@ let coins = [];
 let balances = {};
 let holders = {};
 let claimableWei = 0n;
+let refunds = {};
 const WITHDRAW_PAUSED = false;
 let logoData = "";
 let filter = "ALL";
@@ -422,7 +430,7 @@ async function loadCoins() {
     return;
   }
   holders = {};
-  await Promise.all(coins.filter((c) => c.status === "LIVE" || c.status === "FROZEN").map(async (c) => {
+  await Promise.all(coins.filter((c) => ["LIVE", "FROZEN", "REFUNDING"].includes(c.status)).map(async (c) => {
     try {
       const h = await readClient.readContract({ address: CONTRACT, functionName: "get_holders", args: [Number(c.id)] });
       holders[c.id] = JSON.parse(h);
@@ -446,14 +454,26 @@ async function loadCoins() {
       } catch { balances[c.id] = 0; }
     }));
   }
+  refunds = {};
+  if (account) {
+    await Promise.all(coins.filter((c) => c.status === "REFUNDING").map(async (c) => {
+      try {
+        const r = await readClient.readContract({ address: CONTRACT, functionName: "refund_of", args: [Number(c.id), account] });
+        refunds[c.id] = BigInt(String(r || "0"));
+      } catch { refunds[c.id] = 0n; }
+    }));
+  }
   render();
 }
+
+function weiGen(w) { return (Number(BigInt(w || 0) / 10n ** 12n) / 1e6).toLocaleString("en-US", { maximumFractionDigits: 4 }); }
 
 function render() {
   $("sTotal").textContent = coins.length;
   $("sLive").textContent = coins.filter((c) => c.status === "LIVE").length;
   $("sRejected").textContent = coins.filter((c) => c.status === "REJECTED").length;
   $("sFrozen").textContent = coins.filter((c) => c.status === "FROZEN").length;
+  $("sRefund").textContent = coins.filter((c) => c.status === "REFUNDING").length;
 
   const list = coins.filter((c) => filter === "ALL" || c.status === filter).slice().reverse();
   if (!list.length) {
@@ -467,12 +487,15 @@ function trustBadges(c) {
   if (c.status === "PENDING") return "";
   const b = [];
   if (c.status === "REJECTED") b.push(`<span class="warn">✕ Failed guard check</span>`);
+  else if (c.status === "REFUNDING") b.push(`<span class="warn">↩ Refunding holders</span>`);
   else b.push(`<span class="ok">🛡 Guard verified</span>`);
   const parts = c.tranches_unlocked || 0;
-  b.push(parts >= 4 ? `<span class="ok">✓ Promise kept · share fully unlocked</span>` : parts > 0 ? `<span class="ok">✓ Promise kept · ${parts}/4 unlocked</span>` : `<span>🔒 Creator share locked</span>`);
+  if (c.status !== "REFUNDING") b.push(parts >= 4 ? `<span class="ok">✓ Promise kept · share fully unlocked</span>` : parts > 0 ? `<span class="ok">✓ Promise kept · ${parts}/4 unlocked</span>` : `<span>🔒 Creator share locked</span>`);
   if (c.status === "LIVE" || (c.status === "FROZEN" && c.freeze_reason !== "NO_PROOF")) b.push(`<span class="ok">🔑 Site ownership proven</span>`);
   if (c.status === "LIVE" || c.status === "FROZEN") b.push(`<span class="ok">⚖ Max 2% per wallet</span>`);
-  if ((c.report_count || 0) > 0) {
+  if (c.appeal_result === "WON") b.push(`<span class="ok">⚖ Appeal won · live again</span>`);
+  if (c.status === "REFUNDING") b.push(`<span class="warn">🔥 Creator tokens burned</span>`);
+  if ((c.report_count || 0) > 0 && c.status !== "REFUNDING") {
     b.push(c.status === "FROZEN" ? `<span class="warn">⚑ Frozen by report</span>` : `<span class="ok">⚑ ${c.report_count} report${c.report_count > 1 ? "s" : ""} cleared</span>`);
   }
   return `<div class="trust">${b.join("")}</div>`;
@@ -511,6 +534,7 @@ function cardHTML(c) {
   const site = c.website.startsWith("https://") ? `<a href="${esc(c.website)}" target="_blank" rel="noopener noreferrer">${esc(c.website.replace("https://", ""))}</a>` : esc(c.website);
   const reason = c.status === "PENDING" ? "Waiting for the validators' guard check"
     : c.status === "FROZEN" ? "Passed at launch, frozen after a re-check"
+    : c.status === "REFUNDING" ? "Frozen, then holders voted for a refund"
     : (REASONS[c.guard_reason] || esc(c.guard_reason));
 
   let actions = "";
@@ -522,6 +546,7 @@ function cardHTML(c) {
     if (isCreator) actions += `<button class="btn-ghost" data-act="cancel" data-id="${c.id}" title="Cancel this coin, for example after a wrong link">Cancel</button>`;
   } else if (c.status === "LIVE") {
     actions = `<input type="number" min="0.1" max="100" step="0.1" value="0.5" id="amt-${c.id}" aria-label="GEN to spend" title="GEN to spend">
+      <select id="src-${c.id}" aria-label="Pay from" title="Pay from your wallet or from your MemeGuard balance"><option value="wallet">Pay from: Wallet</option><option value="balance" ${claimableWei > 0n ? "" : "disabled"}>Pay from: Balance</option></select>
       <button class="btn-primary" data-act="buy" data-id="${c.id}" ${account && !isCreator ? "" : "disabled"} title="${isCreator ? "Creators cannot buy their own coin" : "Max 2% of supply per wallet"}">Buy</button>
       <select id="pct-${c.id}" aria-label="Part of your tokens to sell" title="Part of your tokens to sell" ${account && (balances[c.id] || 0) > 0 ? "" : "disabled"}><option value="25">25%</option><option value="50">50%</option><option value="100" selected>100%</option></select>
       <button class="btn-ghost" data-act="sell" data-id="${c.id}" ${account && (balances[c.id] || 0) > 0 ? "" : "disabled"}>Sell</button>`;
@@ -536,9 +561,19 @@ function cardHTML(c) {
   } else if (c.status === "FROZEN") {
     actions = `<select id="pct-${c.id}" aria-label="Part of your tokens to sell" title="Part of your tokens to sell" ${account && (balances[c.id] || 0) > 0 ? "" : "disabled"}><option value="25">25%</option><option value="50">50%</option><option value="100" selected>100%</option></select>
       <button class="btn-ghost" data-act="sell" data-id="${c.id}" ${account && (balances[c.id] || 0) > 0 ? "" : "disabled"}>Sell</button>`;
+    const voted = account && (c.refund_voters || []).includes(account);
+    if (!isCreator) {
+      actions += `<button class="btn-primary" data-act="vote" data-id="${c.id}" ${account && (balances[c.id] || 0) > 0 && !voted ? "" : "disabled"} title="Holders vote to end this coin and split the pool fairly">${voted ? "Voted for refund" : "↩ Vote refund"}</button>`;
+    }
+    if (isCreator && (c.appeals_used || 0) < 1) {
+      actions += `<button class="btn-primary" data-act="appeal" data-id="${c.id}" title="Fix your website first. Validators re-read it once.">⚖ Appeal (1 left)</button>`;
+    }
+  } else if (c.status === "REFUNDING") {
+    const mine = refunds[c.id] || 0n;
+    if (!isCreator) actions = `<button class="btn-primary" data-act="refund" data-id="${c.id}" ${account && mine > 0n ? "" : "disabled"}>${mine > 0n ? `Claim refund ${weiGen(mine)} GEN` : "No refund to claim"}</button>`;
   }
 
-  const lockText = parts >= 4
+  const lockText = c.status === "REFUNDING" ? `Burned (${fmt(c.creator_burned || 0)} tokens)` : parts >= 4
     ? "Fully unlocked (promise kept)"
     : `${parts}/4 parts unlocked · ${fmt(c.creator_locked)} locked · next at ${nextPct}% sold${c.promise_reason === "NOT_FULFILLED" ? " · last check: not yet" : ""}`;
   const canRetry = c.status === "REJECTED" && ["NO_PROOF", "NO_WEBSITE"].includes(c.guard_reason) && (c.guard_retries || 0) < 3;
@@ -548,19 +583,19 @@ function cardHTML(c) {
     : "";
   const T = c.max_supply || 1000000000;
   const pct = (n) => Math.max(0, (n / T) * 100);
-  const unlocked = parts * PART;
+  const unlocked = c.status === "REFUNDING" ? 0 : parts * PART;
   const supplyBar = `<div>
       <div class="kv"><span>Supply</span><span class="mono">${fmt(T)}</span></div>
       <div class="supply" role="img" aria-label="Supply split">
         <i class="seg-sold" style="width:${pct(c.sold)}%"></i>
         <i class="seg-left" style="width:${pct(SALE_SUPPLY - c.sold)}%"></i>
         <i class="seg-free" style="width:${pct(unlocked)}%"></i>
-        <i class="seg-lock" style="width:${pct(CREATOR_SHARE - unlocked)}%"></i>
+        <i class="seg-lock" style="width:${pct(c.status === "REFUNDING" ? 0 : CREATOR_SHARE - unlocked)}%"></i>
       </div>
       <div class="legend">
         <span><b style="background:var(--accent)"></b>Sold ${fmt(c.sold)}</span>
         <span><b style="background:#2b333d"></b>For sale ${fmt(Math.max(0, SALE_SUPPLY - c.sold))}</span>
-        <span><b style="background:#6b4fa3"></b>Creator locked ${fmt(CREATOR_SHARE - unlocked)}</span>
+        ${c.status === "REFUNDING" ? `<span><b style="background:#ff9a4d"></b>Creator burned ${fmt(c.creator_burned || 0)}</span>` : `<span><b style="background:#6b4fa3"></b>Creator locked ${fmt(CREATOR_SHARE - unlocked)}</span>`}
         ${unlocked ? `<span><b style="background:#c79bff"></b>Creator unlocked ${fmt(unlocked)}</span>` : ""}
       </div>
     </div>`;
@@ -575,8 +610,9 @@ function cardHTML(c) {
     ${trustBadges(c)}
     <div class="promise"><small>Creator's promise</small>${esc(c.promise)}</div>
     ${verifyBox}
-    ${c.status === "FROZEN" ? `<div class="frozen-note">Frozen after a community report: ${REASONS[c.freeze_reason] || esc(c.freeze_reason)}. Buying is stopped; holders can still sell.</div>` : ""}
-    ${c.status === "LIVE" || c.status === "FROZEN" ? priceBlock(c) + tradesList(c) : ""}
+    ${c.status === "FROZEN" ? `<div class="frozen-note">Frozen after a community report: ${REASONS[c.freeze_reason] || esc(c.freeze_reason)}. Buying is stopped; holders can still sell, or vote for a fair refund (${(c.refund_voters || []).length} vote${(c.refund_voters || []).length === 1 ? "" : "s"} so far · starts when voters hold 20% of holder tokens).${c.appeal_result && c.appeal_result !== "WON" ? ` Creator appeal failed: ${REASONS[c.appeal_result] || esc(c.appeal_result)}.` : ""}</div>` : ""}
+    ${c.status === "REFUNDING" ? `<div class="refund-note">Refund in progress: ${weiGen(c.refund_pool_wei)} GEN is split pro-rata to ${fmt(c.refund_supply)} holder tokens. Paid out so far: ${weiGen(c.refund_paid_wei)} GEN. Creator tokens burned: ${fmt(c.creator_burned || 0)}. Refunds go to your MemeGuard balance.</div>` : ""}
+    ${["LIVE", "FROZEN", "REFUNDING"].includes(c.status) ? priceBlock(c) + tradesList(c) : ""}
     ${reportsList(c)}
     ${supplyBar}
     <div class="kv">
@@ -730,7 +766,12 @@ $("grid").addEventListener("click", async (ev) => {
     if (!(amt >= 0.1 && amt <= 100)) return alert("Enter 0.1 to 100 GEN.");
     const est = amt * currentRate(coin);
     if ((balances[id] || 0) + est > 20000000) return alert(`Wallet limit: max 20,000,000 tokens (2% of supply). You hold ${(balances[id] || 0).toLocaleString("en-US")}; this buy adds about ${Math.round(est).toLocaleString("en-US")}.`);
-    await runTx(`Buying ${coin.symbol} for ${amt} GEN`, "buy", [id], "", toWei(amt));
+    if ($(`src-${id}`).value === "balance") {
+      if (toWei(amt) > claimableWei) return alert("Not enough GEN in your MemeGuard balance.");
+      await runTx(`Buying ${coin.symbol} for ${amt} GEN (from balance)`, "buy_with_balance", [id, Math.round(amt * 1000)]);
+    } else {
+      await runTx(`Buying ${coin.symbol} for ${amt} GEN`, "buy", [id], "", toWei(amt));
+    }
   } else if (btn.dataset.act === "sell") {
     const pct = parseInt($(`pct-${id}`).value, 10);
     const have = balances[id] || 0;
@@ -743,6 +784,14 @@ $("grid").addEventListener("click", async (ev) => {
     await runTx(`Cancel ${coin.symbol}`, "cancel_coin", [id]);
   } else if (btn.dataset.act === "report") {
     openReport(coin);
+  } else if (btn.dataset.act === "vote") {
+    if (!confirm(`Vote to end ${coin.symbol} and refund the pool to holders? When voters hold 20% of holder tokens, trading stops for good and every holder gets a fair share.`)) return;
+    await runTx(`Refund vote: ${coin.symbol}`, "vote_refund", [id]);
+  } else if (btn.dataset.act === "refund") {
+    await runTx(`Claim refund: ${coin.symbol}`, "claim_refund", [id]);
+  } else if (btn.dataset.act === "appeal") {
+    if (!confirm("Fix your website first. Validators will re-read it once. If it passes, the coin is live again. You have only 1 appeal.")) return;
+    await runTx(`Appeal: ${coin.symbol}`, "appeal_freeze", [id], "Validators are re-reading the website. This can take 1-3 minutes.");
   } else if (btn.dataset.act === "claim") {
     await runTx(`Unlock part ${(coin.tranches_unlocked || 0) + 1}/4: ${coin.symbol}`, "claim_creator_share", [id], "Validators are checking the website for the promise. This can take 1-3 minutes.");
   }
