@@ -5,7 +5,7 @@
 **A fair-launch meme coin launchpad where GenLayer validators check every coin before it can trade, keep watching it after launch, and release the creator's share only as the creator keeps their public promise.**
 
 - Live demo: https://gurusankar55.github.io/memeguard/web/
-- Intelligent Contract (GenLayer Studionet): `0x8c6C3ef5f1a01b4AEBa0b68b52c069F88e12D2b6`
+- Intelligent Contract v2 (GenLayer Studio): `0xA3666cAE5076eB53C39B0DD97DFAd5A0522bFfb4` (v1: `0x8c6C3ef5f1a01b4AEBa0b68b52c069F88e12D2b6`)
 - Contract source: [`contracts/meme_guard.py`](contracts/meme_guard.py)
 - Frontend: [`web/index.html`](web/index.html) (no backend, the browser talks to the contract with `genlayer-js`)
 
